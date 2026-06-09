@@ -1,0 +1,424 @@
+<?php
+require 'config.php';
+
+$page_title = "ДУЛГАР | Портфолио";
+// Категории для фильтра
+$allowed_categories = ['all', 'individual', 'love_story', 'family', 'wedding'];
+$current_category = $_GET['category'] ?? 'all';
+if (!in_array($current_category, $allowed_categories)) $current_category = 'all';
+
+// Запрос к БД
+$sql = "SELECT * FROM projects ORDER BY id DESC";
+if ($current_category !== 'all') {
+    $sql = "SELECT * FROM projects WHERE category = :cat ORDER BY id DESC";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([':cat' => $current_category]);
+} else {
+    $stmt = $pdo->query($sql);
+}
+$projects_raw = $stmt->fetchAll();
+
+// Преобразуем данные для JS
+$projects_array = [];
+foreach ($projects_raw as $p) {
+    $projects_array[] = [
+        'id' => $p['id'],
+        'category' => $p['category'],
+        'client' => $p['client'],
+        'description' => $p['description'],
+        'images' => json_decode($p['images'], true) ?: []
+    ];
+}
+?>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title><?php echo $page_title; ?></title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=Montserrat:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+/* === СТИЛИ DULGAR === */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --cream: #FAF8F5;
+    --beige: #F0EBE3;
+    --gold: #C9B99A;
+    --gold-dark: #B09D7D;
+    --gray: #8B8680;
+    --dark: #3D3D3D;
+    --black: #1A1A1A;
+    --sidebar-width: 280px;
+}
+body {
+    font-family: 'Montserrat', sans-serif;
+    background-color: var(--cream);
+    color: var(--dark);
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+h1, h2, h3 { font-family: 'Cormorant Garamond', serif; }
+
+/* Header */
+.header {
+    position: fixed; width: 100%; top: 0; z-index: 1000;
+    background: rgba(250, 248, 245, 0.95);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid rgba(201, 185, 154, 0.3);
+    padding: 15px 50px; transition: all 0.4s ease;
+}
+.header-inner { max-width: 1600px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; }
+.logo { 
+    font-family: 'Cormorant Garamond', serif;
+    font-size: 28px; font-weight: 400; letter-spacing: 3px; 
+    color: var(--black); text-decoration: none; text-transform: uppercase; 
+}
+.logo span { color: var(--gold); }
+
+.nav { display: flex; gap: 35px; align-items: center; }
+.nav a { 
+    color: var(--dark); text-decoration: none; 
+    font-size: 13px; text-transform: uppercase; 
+    letter-spacing: 1.5px; transition: color 0.3s ease; font-weight: 400; 
+}
+.nav a:hover { color: var(--gold); }
+
+.burger-menu { display: none; flex-direction: column; gap: 5px; cursor: pointer; z-index: 1001; }
+.burger-line { width: 25px; height: 2px; background-color: var(--black); transition: 0.3s; }
+
+/* Layout */
+.main-wrapper { display: flex; margin-top: 70px; min-height: calc(100vh - 70px); }
+
+/* Sidebar */
+.sidebar {
+    width: var(--sidebar-width); min-width: var(--sidebar-width);
+    background: white; border-right: 1px solid var(--beige);
+    padding: 40px 0; position: fixed; height: calc(100vh - 70px);
+    overflow-y: auto; z-index: 900; transition: transform 0.4s ease;
+}
+.sidebar-menu { list-style: none; padding: 0 25px; }
+.sidebar-link {
+    display: flex; align-items: center; gap: 15px; padding: 16px 20px;
+    color: var(--gray); text-decoration: none; font-size: 15px;
+    letter-spacing: 1px; transition: all 0.3s; border-radius: 4px; cursor: pointer;
+    text-transform: uppercase; font-size: 12px; font-weight: 500;
+}
+.sidebar-link:hover, .sidebar-link.active { 
+    background: var(--cream); color: var(--gold-dark); 
+    border-left: 3px solid var(--gold);
+}
+.sidebar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--beige); transition: 0.3s; }
+.sidebar-link.active .sidebar-dot { background: var(--gold); }
+
+/* Content */
+.content-area { flex: 1; margin-left: var(--sidebar-width); padding: 50px; }
+.page-header { margin-bottom: 50px; text-align: center; }
+.page-header h1 { font-size: 48px; font-weight: 300; letter-spacing: 5px; color: var(--black); margin-bottom: 10px; }
+.page-header .subtitle { font-size: 18px; color: var(--gray); font-style: italic; }
+
+/* Grid */
+.projects-grid { 
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 30px; 
+    opacity: 1; transition: opacity 0.3s ease; 
+}
+.projects-grid.fade-out { opacity: 0; }
+
+.project-card {
+    background: white; border-radius: 2px; overflow: hidden; cursor: pointer;
+    transition: all 0.4s; border: 1px solid var(--beige);
+    display: flex; flex-direction: column; height: 100%;
+}
+.project-card:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.05); border-color: var(--gold); }
+
+.project-images { 
+    display: grid; gap: 2px; aspect-ratio: 4/3; overflow: hidden; background: var(--beige);
+}
+/* Layouts for grid inside card */
+.layout-1 { grid-template-columns: 1fr; }
+.layout-2 { grid-template-columns: 1fr 1fr; }
+.layout-3 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.layout-3 .img-item:first-child { grid-row: span 2; }
+.layout-4 { grid-template-columns: 1fr 1fr 1fr; } /* Simplified for demo */
+
+.img-item { overflow: hidden; position: relative; }
+.img-item img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.6s; display: block; }
+.project-card:hover .img-item img { transform: scale(1.05); }
+
+.project-info { padding: 25px; flex: 1; display: flex; flex-direction: column; justify-content: space-between; }
+.project-client { font-size: 24px; font-weight: 400; color: var(--black); margin-bottom: 10px; font-family: 'Cormorant Garamond', serif; }
+.project-desc { font-size: 14px; color: var(--gray); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Modal */
+.modal-overlay { 
+    display: none; position: fixed; inset: 0; 
+    background: rgba(26, 26, 26, 0.98); z-index: 2000; 
+    opacity: 0; transition: opacity 0.3s; 
+}
+.modal-overlay.active { display: flex; opacity: 1; }
+
+.modal-container { 
+    background: var(--cream); width: 90%; max-width: 1100px; 
+    margin: auto; border-radius: 4px; overflow: hidden; 
+    position: relative; display: flex; flex-direction: column; 
+    max-height: 90vh; box-shadow: 0 0 50px rgba(0,0,0,0.5);
+}
+.modal-close { 
+    position: absolute; top: 20px; right: 20px; 
+    width: 40px; height: 40px; background: transparent; 
+    border: 1px solid var(--dark); border-radius: 50%; 
+    color: var(--dark); font-size: 24px; cursor: pointer; 
+    z-index: 10; display: flex; align-items: center; justify-content: center; 
+    transition: 0.3s; 
+}
+.modal-close:hover { background: var(--gold); border-color: var(--gold); color: white; }
+
+.modal-slider-wrapper { 
+    width: 100%; height: 60vh; background: #000; position: relative; 
+}
+.slider-track { display: flex; height: 100%; transition: transform 0.4s ease; }
+.slider-slide { min-width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.slider-slide img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+.slider-btn { 
+    position: absolute; top: 50%; transform: translateY(-50%); 
+    width: 50px; height: 50px; background: rgba(255,255,255,0.1); 
+    border: none; color: white; font-size: 30px; cursor: pointer; 
+    z-index: 5; transition: 0.3s; 
+}
+.slider-btn:hover { background: var(--gold); }
+.slider-btn.prev { left: 20px; }
+.slider-btn.next { right: 20px; }
+
+.modal-body { padding: 40px; background: white; }
+.modal-client-name { font-size: 32px; color: var(--black); margin-bottom: 15px; font-family: 'Cormorant Garamond', serif; }
+.modal-description { font-size: 16px; color: var(--gray); line-height: 1.8; }
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .sidebar { transform: translateX(-100%); z-index: 999; background: white; }
+    .sidebar.open { transform: translateX(0); box-shadow: 5px 0 20px rgba(0,0,0,0.1); }
+    .content-area { margin-left: 0; padding: 30px 20px; }
+    .burger-menu { display: flex; }
+    .nav { display: none; }
+    .projects-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+    .projects-grid { grid-template-columns: 1fr; }
+    .header { padding: 15px 20px; }
+    .logo { font-size: 22px; }
+    .modal-slider-wrapper { height: 40vh; }
+    .modal-body { padding: 20px; }
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+<div class="header-inner">
+    <div class="burger-menu" onclick="toggleSidebar()">
+        <span class="burger-line"></span>
+        <span class="burger-line"></span>
+        <span class="burger-line"></span>
+    </div>
+
+    <a href="index.php" class="logo">DUL<span>GAR</span></a>
+    <nav class="nav">
+        <a href="index.php#about">Обо мне</a>
+        <a href="portfolio.php">Портфолио</a>
+        <a href="index.php#services">Прайс</a>
+        <a href="index.php#contacts">Контакты</a>
+    </nav>
+</div>
+</header>
+
+<div class="main-wrapper">
+<aside class="sidebar" id="sidebar">
+<ul class="sidebar-menu">
+    <li><div class="sidebar-link <?= $current_category === 'all' ? 'active' : '' ?>" data-category="all"><span class="sidebar-dot"></span><span>Все работы</span></div></li>
+    <li><div class="sidebar-link <?= $current_category === 'individual' ? 'active' : '' ?>" data-category="individual"><span class="sidebar-dot"></span><span>Индивидуальная</span></div></li>
+    <li><div class="sidebar-link <?= $current_category === 'love_story' ? 'active' : '' ?>" data-category="love_story"><span class="sidebar-dot"></span><span>Love Story</span></div></li>
+    <li><div class="sidebar-link <?= $current_category === 'family' ? 'active' : '' ?>" data-category="family"><span class="sidebar-dot"></span><span>Семейная</span></div></li>
+    <li><div class="sidebar-link <?= $current_category === 'wedding' ? 'active' : '' ?>" data-category="wedding"><span class="sidebar-dot"></span><span>Свадьба</span></div></li>
+</ul>
+</aside>
+
+<main class="content-area">
+<div class="page-header">
+    <h1>ПОРТФОЛИО</h1>
+    <p class="subtitle">Истории, застывшие во времени</p>
+</div>
+<div class="projects-grid" id="projectsGrid"></div>
+</main>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+<div class="modal-container">
+    <button class="modal-close" id="modalClose">&times;</button>
+    <div class="modal-slider-wrapper" id="modalSliderWrapper">
+        <div class="slider-track" id="sliderTrack"></div>
+        <button class="slider-btn prev" id="sliderPrev">‹</button>
+        <button class="slider-btn next" id="sliderNext">›</button>
+    </div>
+    <div class="modal-body">
+        <h2 class="modal-client-name" id="modalClient"></h2>
+        <div class="modal-description" id="modalDescription"></div>
+    </div>
+</div>
+</div>
+
+<script>
+const initialCategory = <?= json_encode($current_category) ?>;
+const projects = <?= json_encode($projects_array, JSON_UNESCAPED_UNICODE) ?>;
+
+let currentProject = null;
+let currentSlide = 0;
+
+const projectsGrid = document.getElementById('projectsGrid');
+const modalOverlay = document.getElementById('modalOverlay');
+const modalClose = document.getElementById('modalClose');
+const sliderTrack = document.getElementById('sliderTrack');
+const sidebarLinks = document.querySelectorAll('.sidebar-link');
+const sidebar = document.getElementById('sidebar');
+const burgerMenu = document.querySelector('.burger-menu');
+const modalSliderWrapper = document.getElementById('modalSliderWrapper');
+
+function toggleSidebar() {
+    sidebar.classList.toggle('open');
+    // Анимация бургера можно добавить здесь
+}
+
+// Закрытие сайдбара при клике вне его на мобильных
+document.addEventListener('click', (e) => {
+    if (window.innerWidth <= 1024 && !sidebar.contains(e.target) && !burgerMenu.contains(e.target) && sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+    }
+});
+
+function getLayoutClass(count) {
+    if (count === 1) return 'layout-1';
+    if (count === 2) return 'layout-2';
+    if (count === 3) return 'layout-3';
+    return 'layout-4'; // Для 4 и более упрощенно
+}
+
+function renderProjects(category) {
+    projectsGrid.innerHTML = '';
+    const filtered = category === 'all' 
+        ? projects 
+        : projects.filter(p => p.category === category);
+
+    if (filtered.length === 0) {
+        projectsGrid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; color: var(--gray); padding: 50px;">В этой категории пока нет работ.</p>';
+        return;
+    }
+
+    filtered.forEach(project => {
+        const card = document.createElement('div');
+        card.className = 'project-card';
+        card.onclick = () => openModal(project);
+        
+        const imagesCount = project.images.length;
+        const layoutClass = getLayoutClass(imagesCount > 4 ? 4 : imagesCount);
+        
+        // Берем первые 4 фото для превью
+        const previewImages = project.images.slice(0, 4);
+        
+        let imagesHTML = '';
+        previewImages.forEach((img, index) => {
+            imagesHTML += `<div class="img-item"><img src="${img}" alt="Photo ${index + 1}"></div>`;
+        });
+        
+        card.innerHTML = `
+        <div class="project-images ${layoutClass}">${imagesHTML}</div>
+        <div class="project-info">
+            <div class="project-client">${project.client}</div>
+            <div class="project-desc">${project.description || 'Фотографическая история...'}</div>
+        </div>`;
+        projectsGrid.appendChild(card);
+    });
+}
+
+// Фильтрация
+sidebarLinks.forEach(link => {
+    link.addEventListener('click', () => {
+        sidebarLinks.forEach(l => l.classList.remove('active'));
+        link.classList.add('active');
+        if (window.innerWidth <= 1024) sidebar.classList.remove('open');
+        
+        projectsGrid.classList.add('fade-out');
+        setTimeout(() => {
+            renderProjects(link.dataset.category);
+            history.replaceState(null, '', '?category=' + link.dataset.category);
+            setTimeout(() => projectsGrid.classList.remove('fade-out'), 50);
+        }, 300);
+    });
+});
+
+renderProjects(initialCategory);
+
+// Modal Logic
+function openModal(project) {
+    currentProject = project;
+    currentSlide = 0;
+    document.getElementById('modalClient').textContent = project.client;
+    document.getElementById('modalDescription').textContent = project.description || '';
+    renderSlider();
+    modalOverlay.classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+function closeModal() {
+    modalOverlay.classList.remove('active');
+    document.body.style.overflow = '';
+}
+
+function renderSlider() {
+    if (!currentProject) return;
+    sliderTrack.innerHTML = currentProject.images.map(img => `
+        <div class="slider-slide"><img src="${img}" alt="Project Image" loading="lazy"></div>
+    `).join('');
+    updateSlider();
+}
+
+function updateSlider() {
+    sliderTrack.style.transform = `translateX(-${currentSlide * 100}%)`;
+}
+
+function nextSlide() { 
+    if(!currentProject) return;
+    currentSlide = (currentSlide + 1) % currentProject.images.length; 
+    updateSlider(); 
+}
+
+function prevSlide() { 
+    if(!currentProject) return;
+    currentSlide = (currentSlide - 1 + currentProject.images.length) % currentProject.images.length; 
+    updateSlider(); 
+}
+
+// Events
+modalClose.addEventListener('click', closeModal);
+modalOverlay.addEventListener('click', (e) => { if (e.target === modalOverlay) closeModal(); });
+document.getElementById('sliderNext').addEventListener('click', (e) => { e.stopPropagation(); nextSlide(); });
+document.getElementById('sliderPrev').addEventListener('click', (e) => { e.stopPropagation(); prevSlide(); });
+
+// Keyboard & Swipe
+document.addEventListener('keydown', (e) => {
+    if (!modalOverlay.classList.contains('active')) return;
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'ArrowRight') nextSlide();
+    if (e.key === 'ArrowLeft') prevSlide();
+});
+
+let touchStartX = 0;
+modalSliderWrapper.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX, {passive: true});
+modalSliderWrapper.addEventListener('touchend', e => {
+    const diff = touchStartX - e.changedTouches[0].screenX;
+    if (Math.abs(diff) > 50) diff > 0 ? nextSlide() : prevSlide();
+}, {passive: true});
+
+</script>
+</body>
+</html>з
